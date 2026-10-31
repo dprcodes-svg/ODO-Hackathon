@@ -1,0 +1,1891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Brightloop Software — Subscription Management</title>
+  
+  <!-- Light Theme Base & Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              900: '#1e3a8a'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React 18 & Babel Standalone Execution -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      background-color: #f8fafc;
+      color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .plain-card {
+      background-color: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.5rem;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900 antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const API_BASE = '/api';
+
+    // API helper with authentication token and role simulation headers
+    async function apiRequest(endpoint, method = 'GET', body = null, user = null) {
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (user) {
+        if (user.token) headers['Authorization'] = `Bearer ${user.token}`;
+        if (user.role) headers['X-Simulated-Role'] = user.role;
+        if (user.customerId) headers['X-Simulated-Customer-Id'] = user.customerId;
+      }
+
+      const options = { method, headers };
+      if (body) options.body = JSON.stringify(body);
+
+      const res = await fetch(`${API_BASE}${endpoint}`, options);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Server error: ' + res.status);
+      return data;
+    }
+
+    function App() {
+      // Authorization State: null when not logged in
+      const [currentUser, setCurrentUser] = useState(() => {
+        const saved = localStorage.getItem('brightloop_auth_user');
+        return saved ? JSON.parse(saved) : null;
+      });
+
+      const [currentView, setCurrentView] = useState('dashboard');
+
+      const handleLoginSuccess = (userData) => {
+        setCurrentUser(userData);
+        localStorage.setItem('brightloop_auth_user', JSON.stringify(userData));
+        setCurrentView('dashboard');
+      };
+
+      const handleLogout = () => {
+        setCurrentUser(null);
+        localStorage.removeItem('brightloop_auth_user');
+      };
+
+      // 1. IF NOT AUTHORIZED: Render Authentication Screen Only (Module 1)
+      if (!currentUser) {
+        return <AuthScreen onLoginSuccess={handleLoginSuccess} />;
+      }
+
+      // 2. IF AUTHORIZED: Render Application Shell with Role-tailored Workflow
+      const isCustomer = currentUser.role === 'customer';
+      const isAdmin = currentUser.role === 'admin';
+
+      return (
+        <div className="min-h-screen flex flex-col">
+          {/* Header */}
+          <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex justify-between h-16 items-center">
+                {/* Brand */}
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg bg-blue-600 text-white flex items-center justify-center font-black text-lg shadow-sm">
+                    B
+                  </div>
+                  <div>
+                    <div className="font-extrabold text-slate-900 tracking-tight text-base leading-none">
+                      Brightloop Software
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Subscription & Recurring Billing</div>
+                  </div>
+                </div>
+
+                {/* User Profile & Logout */}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-slate-200 text-slate-700 font-bold flex items-center justify-center text-xs">
+                      {currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
+                    </div>
+                    <div className="hidden md:block text-left">
+                      <div className="text-xs font-bold text-slate-800 leading-none">{currentUser.name}</div>
+                      <div className="text-[10px] text-slate-400 capitalize">{currentUser.role}</div>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      title="Log Out"
+                      className="ml-2 px-2.5 py-1 text-xs border border-slate-300 hover:bg-slate-50 text-slate-600 rounded transition-colors"
+                    >
+                      Log out
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* Body with Sidebar and Main Content */}
+          <div className="flex-1 max-w-7xl w-full mx-auto flex flex-col md:flex-row">
+            {/* Sidebar Navigation */}
+            <aside className="w-full md:w-60 bg-white border-r border-slate-200 p-4">
+              <nav className="space-y-1 text-xs">
+                {/* 1. Dashboard (All Users) */}
+                <button
+                  onClick={() => setCurrentView('dashboard')}
+                  className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${
+                    currentView === 'dashboard'
+                      ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Dashboard</span>
+                </button>
+
+                {/* 2. Subscriptions */}
+                <button
+                  onClick={() => setCurrentView('subscriptions')}
+                  className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${
+                    currentView === 'subscriptions'
+                      ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <span>{isCustomer ? 'My Subscriptions' : 'Subscriptions'}</span>
+                </button>
+
+                {/* 3. Invoices & Payments */}
+                <button
+                  onClick={() => setCurrentView('invoices')}
+                  className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${
+                    currentView === 'invoices'
+                      ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <span>{isCustomer ? 'My Invoices & Payments' : 'Invoices & Payments'}</span>
+                </button>
+
+                {/* 4. Products & Plans (Internal Staff & Admin Only) */}
+                {!isCustomer && (
+                  <button
+                    onClick={() => setCurrentView('products')}
+                    className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${
+                      currentView === 'products'
+                        ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>Products & Plans</span>
+                  </button>
+                )}
+
+                {/* 5. Customers Directory (Internal Staff & Admin Only) */}
+                {!isCustomer && (
+                  <button
+                    onClick={() => setCurrentView('customers')}
+                    className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${
+                      currentView === 'customers'
+                        ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>Customers</span>
+                  </button>
+                )}
+
+                {/* 6. Reports (Internal Staff & Admin Only) */}
+                {!isCustomer && (
+                  <button
+                    onClick={() => setCurrentView('reports')}
+                    className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${
+                      currentView === 'reports'
+                        ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>Financial Reports</span>
+                  </button>
+                )}
+
+                {/* 7. Staff Management (Admin Only) */}
+                {isAdmin && (
+                  <button
+                    onClick={() => setCurrentView('staff')}
+                    className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${
+                      currentView === 'staff'
+                        ? 'bg-purple-50 text-purple-700 font-bold border border-purple-200'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>Staff Management</span>
+                  </button>
+                )}
+              </nav>
+            </aside>
+
+            {/* Main Application Area */}
+            <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+              {currentView === 'dashboard' && (
+                <DashboardView user={currentUser} onNavigate={setCurrentView} />
+              )}
+              {currentView === 'subscriptions' && (
+                <SubscriptionsView user={currentUser} />
+              )}
+              {currentView === 'invoices' && (
+                <InvoicesView user={currentUser} />
+              )}
+              {currentView === 'products' && !isCustomer && (
+                <ProductsView user={currentUser} />
+              )}
+              {currentView === 'customers' && !isCustomer && (
+                <CustomersView user={currentUser} />
+              )}
+              {currentView === 'reports' && !isCustomer && (
+                <ReportsView user={currentUser} />
+              )}
+              {currentView === 'staff' && isAdmin && (
+                <StaffManagementView user={currentUser} />
+              )}
+            </main>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // AUTHORIZATION SCREEN (LOGIN / SIGNUP)
+    // ==========================================
+    function AuthScreen({ onLoginSuccess }) {
+      const [authTab, setAuthTab] = useState('login'); // 'login', 'signup', 'forgot'
+      const [loginData, setLoginData] = useState({ email: '', password: '' });
+      const [signupData, setSignupData] = useState({ name: '', companyName: '', email: '', password: '', phone: '' });
+      const [forgotEmail, setForgotEmail] = useState('');
+      const [resetLink, setResetLink] = useState(null);
+      const [error, setError] = useState(null);
+      const [loading, setLoading] = useState(false);
+
+      // Password Complexity Validation: > 8 chars, 1 uppercase, 1 lowercase, 1 special character
+      const pw = signupData.password;
+      const isLengthValid = pw.length > 8;
+      const hasUppercase = /[A-Z]/.test(pw);
+      const hasLowercase = /[a-z]/.test(pw);
+      const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(pw);
+      const isPasswordStrong = isLengthValid && hasUppercase && hasLowercase && hasSpecial;
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        setError(null);
+        setLoading(true);
+        try {
+          const res = await apiRequest('/auth/login', 'POST', loginData);
+          onLoginSuccess({
+            ...res.user,
+            token: res.token
+          });
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleSignup = async (e) => {
+        e.preventDefault();
+        setError(null);
+
+        if (!isPasswordStrong) {
+          setError('Password does not meet required security complexity.');
+          return;
+        }
+
+        setLoading(true);
+        try {
+          const res = await apiRequest('/auth/register', 'POST', signupData);
+          onLoginSuccess({
+            ...res.user,
+            token: res.token
+          });
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleForgot = async (e) => {
+        e.preventDefault();
+        setError(null);
+        try {
+          const res = await apiRequest('/auth/forgot-password', 'POST', { email: forgotEmail });
+          setResetLink(res.simulatedLink);
+        } catch (err) {
+          setError(err.message);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col justify-center items-center p-4 bg-slate-50">
+          <div className="w-full max-w-md">
+            {/* Header / Brand */}
+            <div className="text-center mb-6">
+              <div className="h-12 w-12 rounded-xl bg-blue-600 text-white inline-flex items-center justify-center font-black text-2xl shadow-sm mb-3">
+                B
+              </div>
+              <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Brightloop Software</h1>
+              <p className="text-xs text-slate-500 mt-1">Sign in to manage plans, subscriptions, and recurring billing.</p>
+            </div>
+
+            {/* Auth Card */}
+            <div className="plain-card p-6 sm:p-8 bg-white shadow-sm">
+              {/* Tab Selector */}
+              <div className="flex border-b border-slate-200 mb-6 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => { setAuthTab('login'); setError(null); }}
+                  className={`pb-3 flex-1 text-center border-b-2 transition-colors ${
+                    authTab === 'login' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAuthTab('signup'); setError(null); }}
+                  className={`pb-3 flex-1 text-center border-b-2 transition-colors ${
+                    authTab === 'signup' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Create Account
+                </button>
+              </div>
+
+              {error && (
+                <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800">
+                  {error}
+                </div>
+              )}
+
+              {/* 1. SIGN IN FORM */}
+              {authTab === 'login' && (
+                <form onSubmit={handleLogin} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block text-slate-700 font-medium mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      value={loginData.email}
+                      onChange={e => setLoginData({ ...loginData, email: e.target.value })}
+                      placeholder="e.g. admin@brightloop.com"
+                      className="w-full border border-slate-300 rounded p-2.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-slate-700 font-medium">Password</label>
+                      <button
+                        type="button"
+                        onClick={() => { setAuthTab('forgot'); setError(null); }}
+                        className="text-blue-600 hover:underline text-[11px]"
+                      >
+                        Forgot password?
+                      </button>
+                    </div>
+                    <input
+                      type="password"
+                      required
+                      value={loginData.password}
+                      onChange={e => setLoginData({ ...loginData, password: e.target.value })}
+                      placeholder="••••••••"
+                      className="w-full border border-slate-300 rounded p-2.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-2.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors text-xs"
+                  >
+                    {loading ? 'Authenticating...' : 'Sign In'}
+                  </button>
+                </form>
+              )}
+
+              {/* 2. SIGN UP FORM */}
+              {authTab === 'signup' && (
+                <form onSubmit={handleSignup} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-700 font-medium mb-1">Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={signupData.name}
+                      onChange={e => setSignupData({ ...signupData, name: e.target.value })}
+                      placeholder="e.g. David Miller"
+                      className="w-full border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-medium mb-1">Company / Organization</label>
+                    <input
+                      type="text"
+                      value={signupData.companyName}
+                      onChange={e => setSignupData({ ...signupData, companyName: e.target.value })}
+                      placeholder="e.g. Miller Logistics Ltd"
+                      className="w-full border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-medium mb-1">Work Email *</label>
+                    <input
+                      type="email"
+                      required
+                      value={signupData.email}
+                      onChange={e => setSignupData({ ...signupData, email: e.target.value })}
+                      placeholder="david@millerlogistics.com"
+                      className="w-full border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-medium mb-1">Password *</label>
+                    <input
+                      type="password"
+                      required
+                      value={signupData.password}
+                      onChange={e => setSignupData({ ...signupData, password: e.target.value })}
+                      placeholder="Create secure password"
+                      className="w-full border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+
+                    {/* Password Complexity Checklist */}
+                    <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded text-[11px] space-y-0.5">
+                      <div className="font-semibold text-slate-600 mb-1">Password Requirements:</div>
+                      <div className={isLengthValid ? 'text-emerald-600 font-medium' : 'text-slate-400'}>
+                        {isLengthValid ? '✓' : '○'} More than 8 characters ({pw.length}/9+)
+                      </div>
+                      <div className={hasUppercase ? 'text-emerald-600 font-medium' : 'text-slate-400'}>
+                        {hasUppercase ? '✓' : '○'} At least one uppercase letter (A-Z)
+                      </div>
+                      <div className={hasLowercase ? 'text-emerald-600 font-medium' : 'text-slate-400'}>
+                        {hasLowercase ? '✓' : '○'} At least one lowercase letter (a-z)
+                      </div>
+                      <div className={hasSpecial ? 'text-emerald-600 font-medium' : 'text-slate-400'}>
+                        {hasSpecial ? '✓' : '○'} At least one special character (!@#$...)
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={!isPasswordStrong || loading}
+                    className={`w-full py-2.5 rounded font-semibold transition-colors ${
+                      isPasswordStrong
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {loading ? 'Registering...' : 'Complete Registration'}
+                  </button>
+                </form>
+              )}
+
+              {/* 3. FORGOT PASSWORD */}
+              {authTab === 'forgot' && (
+                <div className="space-y-4 text-xs">
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm">Reset Password</h3>
+                    <p className="text-slate-500 mt-0.5">Enter your registered email address to receive a password reset link.</p>
+                  </div>
+                  <form onSubmit={handleForgot} className="space-y-3">
+                    <input
+                      type="email"
+                      required
+                      value={forgotEmail}
+                      onChange={e => setForgotEmail(e.target.value)}
+                      placeholder="acme@business.com"
+                      className="w-full border border-slate-300 rounded p-2.5"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setAuthTab('login'); setResetLink(null); }}
+                        className="px-3 py-2 border border-slate-300 rounded text-slate-600 hover:bg-slate-50"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded"
+                      >
+                        Send Reset Link
+                      </button>
+                    </div>
+                  </form>
+
+                  {resetLink && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded text-[11px] space-y-1">
+                      <div className="font-semibold text-blue-900">Reset Link Generated:</div>
+                      <div className="font-mono break-all text-slate-700 bg-white p-2 rounded border border-slate-200">
+                        {resetLink}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sample Accounts */}
+              <div className="mt-6 pt-5 border-t border-slate-100">
+                <div className="text-[11px] text-slate-400 font-semibold mb-2 text-center uppercase tracking-wider">
+                  Sample Accounts
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setAuthTab('login'); setError(null); setLoginData({ email: 'admin@brightloop.com', password: 'Admin@1234' }); }}
+                    className="p-2 border border-slate-200 hover:border-slate-400 rounded text-slate-700 text-[11px] font-medium bg-slate-50 text-center"
+                  >
+                    Admin
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthTab('login'); setError(null); setLoginData({ email: 'staff@brightloop.com', password: 'Staff@1234' }); }}
+                    className="p-2 border border-slate-200 hover:border-blue-400 rounded text-blue-700 text-[11px] font-medium bg-blue-50/50 text-center"
+                  >
+                    Staff
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthTab('login'); setError(null); setLoginData({ email: 'acme@business.com', password: 'Customer@1234' }); }}
+                    className="p-2 border border-slate-200 hover:border-emerald-400 rounded text-emerald-700 text-[11px] font-medium bg-emerald-50/50 text-center"
+                  >
+                    Customer
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // MODULE 2: DASHBOARD VIEW
+    // ==========================================
+    function DashboardView({ user, onNavigate }) {
+      const [stats, setStats] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [billingMsg, setBillingMsg] = useState(null);
+      const isCustomer = user.role === 'customer';
+
+      const loadStats = async () => {
+        try {
+          setLoading(true);
+          const res = await apiRequest('/dashboard/stats', 'GET', null, user);
+          setStats(res);
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => { loadStats(); }, [user.role]);
+
+      const handleRunBillingDay = async () => {
+        try {
+          const res = await apiRequest('/invoices/run-billing-day', 'POST', null, user);
+          setBillingMsg(res.message);
+          loadStats();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+
+      if (loading) return <div className="p-8 text-center text-slate-400 text-xs">Loading dashboard...</div>;
+
+      const kpis = stats?.kpis || {};
+
+      return (
+        <div className="space-y-6">
+          <div className="plain-card p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">
+                {isCustomer ? 'Customer Portal' : 'Business Dashboard'}
+              </h2>
+              <p className="text-sm text-slate-500 mt-0.5">
+                {isCustomer
+                  ? `Welcome, ${user.name}. Overview of your subscriptions and invoices.`
+                  : 'Recurring revenue velocity, contract retention, and collections summary.'}
+              </p>
+            </div>
+            {!isCustomer && (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRunBillingDay}
+                  className="px-3.5 py-2 text-xs font-semibold rounded bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5"
+                >
+                  <span>⚡</span> Run Billing Day
+                </button>
+                <button
+                  onClick={() => onNavigate('subscriptions')}
+                  className="px-3.5 py-2 text-xs font-semibold rounded bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                >
+                  + New Quote
+                </button>
+              </div>
+            )}
+          </div>
+
+          {billingMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800 flex justify-between items-center">
+              <span>{billingMsg}</span>
+              <button onClick={() => setBillingMsg(null)} className="font-bold">✕</button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="plain-card p-5">
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                {isCustomer ? 'My Active Contracts' : 'Active Subscriptions'}
+              </div>
+              <div className="mt-2 text-3xl font-extrabold text-slate-900">{kpis.activeSubscriptions || 0}</div>
+              <div className="text-xs text-slate-400 mt-1">Total contracts: {kpis.totalSubscriptions || 0}</div>
+            </div>
+
+            <div className="plain-card p-5">
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                {isCustomer ? 'Monthly Commitment' : 'Monthly Recurring (MRR)'}
+              </div>
+              <div className="mt-2 text-3xl font-extrabold text-blue-600">
+                ${(kpis.mrr || 0).toLocaleString()}
+              </div>
+              <div className="text-xs text-slate-400 mt-1">
+                {isCustomer ? 'Current monthly charges' : `ARR: $${(kpis.arr || 0).toLocaleString()}`}
+              </div>
+            </div>
+
+            <div className="plain-card p-5">
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                {isCustomer ? 'Total Paid' : 'Revenue Collected'}
+              </div>
+              <div className="mt-2 text-3xl font-extrabold text-emerald-600">
+                ${(kpis.totalRevenueCollected || 0).toLocaleString()}
+              </div>
+              <div className="text-xs text-slate-400 mt-1">Settled payments</div>
+            </div>
+
+            <div className="plain-card p-5">
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                {isCustomer ? 'Pending Invoices' : 'Overdue Invoices'}
+              </div>
+              <div className={`mt-2 text-3xl font-extrabold ${kpis.overdueCount > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                {kpis.overdueCount || 0}
+              </div>
+              <div className="text-xs text-slate-400 mt-1">
+                {kpis.overdueAmount > 0 ? `$${kpis.overdueAmount.toLocaleString()} overdue` : 'All invoices current'}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="plain-card overflow-hidden">
+              <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Recent Subscriptions</h3>
+                <button onClick={() => onNavigate('subscriptions')} className="text-xs text-blue-600 font-semibold">
+                  View All &rarr;
+                </button>
+              </div>
+              <div className="divide-y divide-slate-100 text-xs">
+                {(stats?.recentSubscriptions || []).length === 0 ? (
+                  <div className="p-4 text-center text-slate-400">No subscriptions found.</div>
+                ) : (
+                  stats.recentSubscriptions.map(s => (
+                    <div key={s._id} className="p-3 flex justify-between items-center hover:bg-slate-50">
+                      <div>
+                        <span className="font-bold text-blue-600">{s.subscriptionNumber}</span>
+                        <div className="text-slate-500">{s.customerName} • {s.planName}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold">${(s.grandTotal || 0).toLocaleString()}</div>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
+                          {s.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="plain-card overflow-hidden">
+              <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Recent Invoices</h3>
+                <button onClick={() => onNavigate('invoices')} className="text-xs text-blue-600 font-semibold">
+                  View All &rarr;
+                </button>
+              </div>
+              <div className="divide-y divide-slate-100 text-xs">
+                {(stats?.recentInvoices || []).length === 0 ? (
+                  <div className="p-4 text-center text-slate-400">No invoices issued.</div>
+                ) : (
+                  stats.recentInvoices.map(inv => (
+                    <div key={inv._id} className="p-3 flex justify-between items-center hover:bg-slate-50">
+                      <div>
+                        <span className="font-bold text-blue-600">{inv.invoiceNumber}</span>
+                        <div className="text-slate-500">{inv.customerName} • Due: {inv.dueDate}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold">${(inv.totalAmount || 0).toLocaleString()}</div>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">
+                          {inv.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // MODULE 3: PRODUCTS & PLANS VIEW
+    // ==========================================
+    function ProductsView({ user }) {
+      const [tab, setTab] = useState('products');
+      const [products, setProducts] = useState([]);
+      const [plans, setPlans] = useState([]);
+      const [discounts, setDiscounts] = useState([]);
+
+      const load = async () => {
+        const [pr, pl, di] = await Promise.all([
+          apiRequest('/catalog/products', 'GET', null, user),
+          apiRequest('/catalog/plans', 'GET', null, user),
+          apiRequest('/catalog/discounts', 'GET', null, user)
+        ]);
+        setProducts(pr.products || []);
+        setPlans(pl.plans || []);
+        setDiscounts(di.discounts || []);
+      };
+
+      useEffect(() => { load(); }, []);
+
+      return (
+        <div className="space-y-6">
+          <div className="plain-card p-6">
+            <h2 className="text-2xl font-bold text-slate-900">Products, Plans & Discounts</h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Software catalog, brand variants (e.g. Odoo Edition +$560), billing frequencies, and discount rules.
+            </p>
+          </div>
+
+          <div className="flex border-b border-slate-200 bg-white px-4 rounded-t-lg text-xs font-semibold">
+            {['products', 'plans', 'discounts'].map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`py-3 px-4 uppercase border-b-2 transition-colors ${
+                  tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-700'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'products' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {products.map(p => (
+                <div key={p._id} className="plain-card p-5 text-xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="px-2 py-0.5 rounded bg-slate-100 font-bold text-slate-700">{p.type}</span>
+                      <span className="font-mono text-slate-400">{p.code}</span>
+                    </div>
+                    <h3 className="font-bold text-slate-900 text-base mb-1">{p.name}</h3>
+                    <p className="text-slate-500 mb-4">{p.notes}</p>
+                    <div className="bg-slate-50 p-3 rounded space-y-1 mb-3">
+                      <div className="flex justify-between"><span>Base Price:</span><strong>${p.salesPrice}</strong></div>
+                      <div className="flex justify-between"><span>Cost Price:</span><span>${p.costPrice}</span></div>
+                      <div className="flex justify-between"><span>Tax Rate:</span><span>{p.taxRate}%</span></div>
+                    </div>
+                    <div className="font-semibold text-slate-700 mb-1">Available Brand Variants:</div>
+                    <div className="space-y-1">
+                      {(p.variants || []).map((v, i) => (
+                        <div key={i} className="flex justify-between bg-white p-1.5 rounded border border-slate-200">
+                          <span>{v.optionName}</span>
+                          <span className="font-bold text-blue-600">
+                            {v.priceModifier > 0 ? `+$${v.priceModifier}` : 'Standard (+$0)'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tab === 'plans' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {plans.map(p => (
+                <div key={p._id} className="plain-card p-5 text-xs">
+                  <span className="uppercase text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-700 rounded">
+                    {p.billingInterval}
+                  </span>
+                  <h3 className="font-bold text-slate-900 text-base mt-2 mb-1">{p.name}</h3>
+                  <div className="text-2xl font-black text-slate-900 mb-3">
+                    ${p.price} <span className="text-xs font-normal text-slate-400">/{p.billingInterval}</span>
+                  </div>
+                  <div className="space-y-1 pt-2 border-t border-slate-100 text-slate-600">
+                    <div>Min Quantity: <strong>{p.minQuantity || 1}</strong></div>
+                    <div>Auto-Close on End: <strong>{p.autoCloseOnEnd ? 'Yes' : 'No'}</strong></div>
+                    <div>Allow Pause: <strong>{p.allowPause ? 'Yes' : 'No'}</strong></div>
+                    <div>Allow Early Close: <strong>{p.allowEarlyClose ? 'Yes' : 'No'}</strong></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tab === 'discounts' && (
+            <div className="plain-card overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase">
+                  <tr>
+                    <th className="p-3">Coupon Code</th>
+                    <th className="p-3">Rule Name</th>
+                    <th className="p-3">Discount Value</th>
+                    <th className="p-3">Criteria</th>
+                    <th className="p-3">Redeemed</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {discounts.map(d => (
+                    <tr key={d._id}>
+                      <td className="p-3 font-mono font-bold text-blue-600">{d.code}</td>
+                      <td className="p-3 font-semibold">{d.name}</td>
+                      <td className="p-3 font-bold text-emerald-600">
+                        {d.type === 'percentage' ? `${d.value}% Off` : `$${d.value} Flat Off`}
+                      </td>
+                      <td className="p-3 text-slate-600">
+                        {d.minQuantity > 0 && <span>Min Qty: {d.minQuantity} | </span>}
+                        <span>Min spend: ${d.minPurchaseAmount || 0}</span>
+                      </td>
+                      <td className="p-3">{d.usedCount || 0} / {d.maxUses}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // MODULE 4: CUSTOMERS VIEW
+    // ==========================================
+    function CustomersView({ user }) {
+      const [customers, setCustomers] = useState([]);
+      const [search, setSearch] = useState('');
+
+      useEffect(() => {
+        apiRequest(`/customers?search=${encodeURIComponent(search)}`, 'GET', null, user)
+          .then(res => setCustomers(res.customers || []));
+      }, [search]);
+
+      return (
+        <div className="space-y-6">
+          <div className="plain-card p-6">
+            <h2 className="text-2xl font-bold text-slate-900">Customer Accounts Directory</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Corporate client accounts, addresses, and payment terms.</p>
+          </div>
+
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search accounts by company, contact person, or email..."
+            className="w-full text-xs border border-slate-300 rounded p-2.5 plain-card"
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {customers.map(c => (
+              <div key={c._id} className="plain-card p-5 text-xs">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold">{c.paymentTerms}</span>
+                  <span className="text-slate-400 font-mono">ID: {c._id.slice(-6)}</span>
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">{c.companyName || c.name}</h3>
+                <div className="text-slate-500 mt-0.5 mb-3">Contact: {c.name}</div>
+                <div className="space-y-1 border-t border-slate-100 pt-3 text-slate-600">
+                  <div><strong>Email:</strong> {c.email}</div>
+                  <div><strong>Phone:</strong> {c.phone}</div>
+                  <div><strong>Credit Limit:</strong> ${(c.creditLimit || 0).toLocaleString()}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // MODULE 5: SUBSCRIPTIONS VIEW
+    // ==========================================
+    function SubscriptionsView({ user }) {
+      const [subs, setSubs] = useState([]);
+      const [statusFilter, setStatusFilter] = useState('');
+      const [showModal, setShowModal] = useState(false);
+      const [plans, setPlans] = useState([]);
+      const [products, setProducts] = useState([]);
+      const [customers, setCustomers] = useState([]);
+      const [selectedCustomer, setSelectedCustomer] = useState('');
+      const [selectedPlan, setSelectedPlan] = useState('');
+      const [discountCode, setDiscountCode] = useState('');
+      const [lines, setLines] = useState([]);
+
+      const isCustomer = user.role === 'customer';
+
+      const load = () => {
+        apiRequest(`/subscriptions?status=${statusFilter}`, 'GET', null, user)
+          .then(res => setSubs(res.subscriptions || []));
+      };
+
+      useEffect(() => { load(); }, [statusFilter, user.role]);
+
+      useEffect(() => {
+        Promise.all([
+          apiRequest('/catalog/plans', 'GET', null, user),
+          apiRequest('/catalog/products', 'GET', null, user),
+          apiRequest('/customers', 'GET', null, user)
+        ]).then(([plRes, prRes, cuRes]) => {
+          setPlans(plRes.plans || []);
+          setProducts(prRes.products || []);
+          setCustomers(cuRes.customers || []);
+          if (plRes.plans?.length > 0) setSelectedPlan(plRes.plans[0]._id);
+          if (cuRes.customers?.length > 0) setSelectedCustomer(cuRes.customers[0]._id);
+        }).catch(() => {});
+      }, [user.role]);
+
+      const addLine = () => {
+        if (products.length === 0) return;
+        setLines([
+          ...lines,
+          {
+            productId: products[0]._id,
+            productName: products[0].name,
+            variantOption: 'Standard Edition',
+            variantPriceModifier: 0,
+            quantity: 1,
+            unitPrice: products[0].salesPrice,
+            taxRate: products[0].taxRate || 10
+          }
+        ]);
+      };
+
+      const removeLine = (idx) => {
+        setLines(lines.filter((_, i) => i !== idx));
+      };
+
+      const updateLine = (idx, field, val) => {
+        const updated = [...lines];
+        updated[idx][field] = val;
+
+        if (field === 'productId') {
+          const p = products.find(prod => prod._id === val);
+          if (p) {
+            updated[idx].productName = p.name;
+            updated[idx].unitPrice = p.salesPrice;
+            updated[idx].taxRate = p.taxRate || 10;
+          }
+        } else if (field === 'variantOption') {
+          if (val.includes('Odoo')) {
+            updated[idx].variantPriceModifier = 560;
+          } else {
+            updated[idx].variantPriceModifier = 0;
+          }
+        }
+        setLines(updated);
+      };
+
+      const handleCreateSubscription = async (e) => {
+        e.preventDefault();
+        if (lines.length === 0) {
+          alert('Please select at least one product line.');
+          return;
+        }
+
+        try {
+          await apiRequest('/subscriptions', 'POST', {
+            customerId: isCustomer ? user.customerId : selectedCustomer,
+            planId: selectedPlan,
+            lines,
+            discountCode,
+            status: isCustomer ? 'Active' : 'Confirmed'
+          }, user);
+
+          setShowModal(false);
+          setLines([]);
+          setDiscountCode('');
+          load();
+        } catch (err) {
+          alert('Error creating subscription: ' + err.message);
+        }
+      };
+
+      const handleTransition = async (id, status) => {
+        try {
+          await apiRequest(`/subscriptions/${id}/status`, 'PATCH', { status }, user);
+          load();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+
+      return (
+        <div className="space-y-6">
+          <div className="plain-card p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">
+                {isCustomer ? 'My Subscriptions' : 'Subscriptions & Quotations'}
+              </h2>
+              <p className="text-sm text-slate-500 mt-0.5">
+                {isCustomer
+                  ? 'Your active software plans and recurring contracts.'
+                  : 'Manage client subscriptions, quotation proposals, and status transitions.'}
+              </p>
+            </div>
+
+            {/* Option for Customers & Staff to add new subscriptions */}
+            <button
+              onClick={() => {
+                if (lines.length === 0 && products.length > 0) {
+                  setLines([{
+                    productId: products[0]._id,
+                    productName: products[0].name,
+                    variantOption: 'Standard Edition',
+                    variantPriceModifier: 0,
+                    quantity: 1,
+                    unitPrice: products[0].salesPrice,
+                    taxRate: 10
+                  }]);
+                }
+                setShowModal(true);
+              }}
+              className="px-3.5 py-2 text-xs font-semibold rounded bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5"
+            >
+              <span>+</span> {isCustomer ? 'Subscribe to New Plan' : 'Create Subscription'}
+            </button>
+          </div>
+
+          <div className="flex gap-2 text-xs flex-wrap">
+            {['', 'Draft', 'Quotation', 'Confirmed', 'Active', 'Paused', 'Closed'].map(st => (
+              <button
+                key={st}
+                onClick={() => setStatusFilter(st)}
+                className={`px-3 py-1 rounded transition-colors ${
+                  statusFilter === st ? 'bg-blue-600 text-white font-bold' : 'bg-white border text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {st || 'All Subscriptions'}
+              </button>
+            ))}
+          </div>
+
+          <div className="plain-card overflow-hidden">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase">
+                <tr>
+                  <th className="p-3">Sub #</th>
+                  <th className="p-3">Customer</th>
+                  <th className="p-3">Plan</th>
+                  <th className="p-3">Line Items</th>
+                  <th className="p-3">Total Amount</th>
+                  <th className="p-3">Status</th>
+                  {!isCustomer && <th className="p-3 text-right">Workflow Actions</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {subs.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="p-4 text-center text-slate-400">No subscriptions found.</td>
+                  </tr>
+                ) : (
+                  subs.map(s => (
+                    <tr key={s._id} className="hover:bg-slate-50">
+                      <td className="p-3 font-mono font-bold text-blue-600">{s.subscriptionNumber}</td>
+                      <td className="p-3 font-semibold text-slate-900">{s.customerName}</td>
+                      <td className="p-3">{s.planName} ({s.billingInterval})</td>
+                      <td className="p-3 max-w-xs">
+                        {(s.lines || []).map((l, i) => (
+                          <div key={i} className="text-[11px] text-slate-600 truncate">
+                            {l.quantity}x {l.productName} ({l.variantOption})
+                          </div>
+                        ))}
+                      </td>
+                      <td className="p-3 font-bold">${(s.grandTotal || 0).toLocaleString()}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                          s.status === 'Active' ? 'bg-emerald-100 text-emerald-800' :
+                          s.status === 'Quotation' ? 'bg-amber-100 text-amber-800' :
+                          s.status === 'Confirmed' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {s.status}
+                        </span>
+                      </td>
+                      {!isCustomer && (
+                        <td className="p-3 text-right space-x-1 whitespace-nowrap">
+                          {s.status === 'Draft' && (
+                            <button
+                              onClick={() => handleTransition(s._id, 'Quotation')}
+                              className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-[10px] font-bold"
+                            >
+                              Send Quote
+                            </button>
+                          )}
+                          {s.status === 'Quotation' && (
+                            <button
+                              onClick={() => handleTransition(s._id, 'Confirmed')}
+                              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold"
+                            >
+                              Confirm
+                            </button>
+                          )}
+                          {s.status === 'Confirmed' && (
+                            <button
+                              onClick={() => handleTransition(s._id, 'Active')}
+                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold"
+                            >
+                              Activate
+                            </button>
+                          )}
+                          {s.status === 'Active' && (
+                            <>
+                              <button
+                                onClick={() => handleTransition(s._id, 'Paused')}
+                                className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-[10px] font-bold"
+                              >
+                                Pause
+                              </button>
+                              <button
+                                onClick={() => handleTransition(s._id, 'Closed')}
+                                className="px-2 py-1 bg-slate-600 hover:bg-slate-700 text-white rounded text-[10px] font-bold"
+                              >
+                                Close
+                              </button>
+                            </>
+                          )}
+                          {s.status === 'Paused' && (
+                            <button
+                              onClick={() => handleTransition(s._id, 'Active')}
+                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold"
+                            >
+                              Resume
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ADD SUBSCRIPTION MODAL */}
+          {showModal && (
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-lg p-6 max-w-xl w-full plain-card shadow-xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-base text-slate-900">
+                    {isCustomer ? 'Subscribe to New Plan' : 'Create New Subscription'}
+                  </h3>
+                  <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
+                </div>
+
+                <form onSubmit={handleCreateSubscription} className="space-y-4 text-xs">
+                  <div className="grid grid-cols-2 gap-3">
+                    {!isCustomer ? (
+                      <div>
+                        <label className="block text-slate-700 font-medium mb-1">Customer *</label>
+                        <select
+                          value={selectedCustomer}
+                          onChange={e => setSelectedCustomer(e.target.value)}
+                          className="w-full border rounded p-2 text-xs"
+                        >
+                          {customers.map(c => (
+                            <option key={c._id} value={c._id}>{c.companyName || c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-slate-700 font-medium mb-1">Subscriber Account</label>
+                        <input
+                          type="text"
+                          disabled
+                          value={user?.name || 'Customer Account'}
+                          className="w-full border border-slate-200 bg-slate-50 text-slate-600 rounded p-2 text-xs"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-slate-700 font-medium mb-1">Billing Plan *</label>
+                      <select
+                        value={selectedPlan}
+                        onChange={e => setSelectedPlan(e.target.value)}
+                        className="w-full border rounded p-2 text-xs"
+                      >
+                        {plans.map(p => (
+                          <option key={p._id} value={p._id}>{p.name} (${p.price}/{p.billingInterval})</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Line Items */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="font-bold text-slate-800">Products & Add-ons</label>
+                      <button
+                        type="button"
+                        onClick={addLine}
+                        className="text-blue-600 hover:underline font-semibold text-xs"
+                      >
+                        + Add Product
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 border border-slate-200 p-3 rounded bg-slate-50">
+                      {lines.map((line, idx) => (
+                        <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-white p-2 rounded border border-slate-200">
+                          <div className="col-span-5">
+                            <select
+                              value={line.productId}
+                              onChange={e => updateLine(idx, 'productId', e.target.value)}
+                              className="w-full border rounded p-1 text-xs"
+                            >
+                              {products.map(p => (
+                                <option key={p._id} value={p._id}>{p.name} (${p.salesPrice})</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="col-span-3">
+                            <select
+                              value={line.variantOption}
+                              onChange={e => updateLine(idx, 'variantOption', e.target.value)}
+                              className="w-full border rounded p-1 text-xs"
+                            >
+                              <option value="Standard Edition">Standard (+$0)</option>
+                              <option value="Odoo Brand Edition">Odoo Edition (+560)</option>
+                            </select>
+                          </div>
+
+                          <div className="col-span-2">
+                            <input
+                              type="number"
+                              min="1"
+                              value={line.quantity}
+                              onChange={e => updateLine(idx, 'quantity', Number(e.target.value))}
+                              placeholder="Qty"
+                              className="w-full border rounded p-1 text-xs text-center"
+                            />
+                          </div>
+
+                          <div className="col-span-1 text-right font-bold text-slate-800">
+                            ${((line.unitPrice + line.variantPriceModifier) * line.quantity).toLocaleString()}
+                          </div>
+
+                          <div className="col-span-1 text-right">
+                            <button
+                              type="button"
+                              onClick={() => removeLine(idx)}
+                              className="text-rose-500 font-bold hover:text-rose-700"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-medium mb-1">Promo / Discount Code</label>
+                    <input
+                      type="text"
+                      value={discountCode}
+                      onChange={e => setDiscountCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. SUMMER20 or SEATS50"
+                      className="w-full border rounded p-2 text-xs font-mono uppercase"
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setShowModal(false)}
+                      className="px-3 py-1.5 border rounded hover:bg-slate-50 text-slate-600"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold"
+                    >
+                      {isCustomer ? 'Confirm & Subscribe' : 'Save Subscription'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // MODULE 6: INVOICES & PAYMENTS VIEW
+    // ==========================================
+    function InvoicesView({ user }) {
+      const [invoices, setInvoices] = useState([]);
+      const [payments, setPayments] = useState([]);
+      const [tab, setTab] = useState('invoices');
+      const [payModal, setPayModal] = useState(null);
+      const [payAmount, setPayAmount] = useState('');
+      const [printInv, setPrintInv] = useState(null);
+      const isCustomer = user.role === 'customer';
+
+      const load = () => {
+        apiRequest('/invoices', 'GET', null, user).then(res => setInvoices(res.invoices || []));
+        apiRequest('/invoices/payments/list', 'GET', null, user).then(res => setPayments(res.payments || []));
+      };
+
+      useEffect(() => { load(); }, [user.role]);
+
+      const handleRunBillingDay = async () => {
+        try {
+          const res = await apiRequest('/invoices/run-billing-day', 'POST', null, user);
+          alert(res.message);
+          load();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+
+      const handleConfirm = async (id) => {
+        await apiRequest(`/invoices/${id}/status`, 'PATCH', { status: 'Confirmed' }, user);
+        load();
+      };
+
+      const submitPayment = async (e) => {
+        e.preventDefault();
+        try {
+          await apiRequest('/invoices/payments', 'POST', {
+            invoiceId: payModal._id,
+            amount: Number(payAmount),
+            paymentMethod: 'Bank Transfer'
+          }, user);
+          setPayModal(null);
+          load();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+
+      return (
+        <div className="space-y-6">
+          <div className="plain-card p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">
+                {isCustomer ? 'My Invoices & Payments' : 'Invoices & Payments Engine'}
+              </h2>
+              <p className="text-sm text-slate-500 mt-0.5">
+                {isCustomer
+                  ? 'Inspect open balances, view printable invoices, and settle payments.'
+                  : 'Recurring billing execution, payment reconciliation, and aging tracking.'}
+              </p>
+            </div>
+            {!isCustomer && (
+              <button
+                onClick={handleRunBillingDay}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-sm flex items-center gap-1.5"
+              >
+                <span>⚡</span> Run Billing Day
+              </button>
+            )}
+          </div>
+
+          <div className="flex border-b border-slate-200 bg-white px-4 rounded-t-lg text-xs font-semibold">
+            <button
+              onClick={() => setTab('invoices')}
+              className={`py-3 px-4 uppercase border-b-2 transition-colors ${
+                tab === 'invoices' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              Invoices ({invoices.length})
+            </button>
+            <button
+              onClick={() => setTab('payments')}
+              className={`py-3 px-4 uppercase border-b-2 transition-colors ${
+                tab === 'payments' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              Payment Transactions ({payments.length})
+            </button>
+          </div>
+
+          {tab === 'invoices' && (
+            <div className="plain-card overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase">
+                  <tr>
+                    <th className="p-3">Invoice #</th>
+                    <th className="p-3">Customer</th>
+                    <th className="p-3">Due Date</th>
+                    <th className="p-3">Total Amount</th>
+                    <th className="p-3">Balance Due</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {invoices.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="p-4 text-center text-slate-400">No invoices generated yet.</td>
+                    </tr>
+                  ) : (
+                    invoices.map(inv => (
+                      <tr key={inv._id} className="hover:bg-slate-50">
+                        <td className="p-3 font-mono font-bold text-blue-600">{inv.invoiceNumber}</td>
+                        <td className="p-3 font-semibold text-slate-900">{inv.customerName}</td>
+                        <td className={`p-3 ${inv.isOverdue ? 'text-rose-600 font-bold' : 'text-slate-600'}`}>
+                          {inv.dueDate} {inv.isOverdue && '(OVERDUE)'}
+                        </td>
+                        <td className="p-3 font-bold">${(inv.totalAmount || 0).toLocaleString()}</td>
+                        <td className="p-3 font-bold text-rose-600">${(inv.balanceDue || 0).toLocaleString()}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                            inv.status === 'Paid' ? 'bg-emerald-100 text-emerald-800' :
+                            inv.status === 'Confirmed' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {inv.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right space-x-1 whitespace-nowrap">
+                          <button
+                            onClick={() => setPrintInv(inv)}
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-medium"
+                          >
+                            Print
+                          </button>
+                          {inv.status === 'Draft' && !isCustomer && (
+                            <button
+                              onClick={() => handleConfirm(inv._id)}
+                              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold"
+                            >
+                              Confirm
+                            </button>
+                          )}
+                          {inv.status !== 'Paid' && (
+                            <button
+                              onClick={() => { setPayModal(inv); setPayAmount(inv.balanceDue); }}
+                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold"
+                            >
+                              {isCustomer ? 'Pay' : 'Record Pay'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === 'payments' && (
+            <div className="plain-card overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase">
+                  <tr>
+                    <th className="p-3">Payment #</th>
+                    <th className="p-3">Invoice #</th>
+                    <th className="p-3">Customer</th>
+                    <th className="p-3">Method</th>
+                    <th className="p-3">Amount</th>
+                    <th className="p-3">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {payments.map(p => (
+                    <tr key={p._id}>
+                      <td className="p-3 font-mono font-bold text-emerald-600">{p.paymentNumber}</td>
+                      <td className="p-3 font-mono text-blue-600">{p.invoiceNumber}</td>
+                      <td className="p-3 font-semibold">{p.customerName}</td>
+                      <td className="p-3">{p.paymentMethod}</td>
+                      <td className="p-3 font-bold text-emerald-600">${p.amount.toLocaleString()}</td>
+                      <td className="p-3 text-slate-500">{p.paymentDate}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Payment Modal */}
+          {payModal && (
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-lg p-6 max-w-sm w-full plain-card shadow-xl">
+                <h3 className="font-bold text-base mb-1">Record Payment: {payModal.invoiceNumber}</h3>
+                <p className="text-xs text-slate-500 mb-4">Customer: {payModal.customerName}</p>
+                <form onSubmit={submitPayment} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-700 font-medium mb-1">Amount ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={payAmount}
+                      onChange={e => setPayAmount(e.target.value)}
+                      className="w-full border rounded p-2 text-emerald-700 font-bold"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setPayModal(null)}
+                      className="px-3 py-1.5 border rounded hover:bg-slate-50 text-slate-600"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold"
+                    >
+                      Confirm
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Printable Invoice Modal */}
+          {printInv && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-lg p-8 max-w-2xl w-full plain-card text-xs shadow-2xl">
+                <div className="flex justify-between items-start border-b pb-4 mb-4">
+                  <div>
+                    <div className="text-xl font-black text-slate-900">BRIGHTLOOP SOFTWARE</div>
+                    <div className="text-slate-500">Subscription & Recurring Billing</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xl font-bold text-blue-600">{printInv.invoiceNumber}</div>
+                    <div className="text-slate-500">Date: {printInv.billingDate}</div>
+                    <div className="text-rose-600 font-bold">Due: {printInv.dueDate}</div>
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <div className="font-bold uppercase text-slate-500 text-[10px]">Billed To:</div>
+                  <div className="text-sm font-bold text-slate-900">{printInv.customerName}</div>
+                  <div className="text-slate-500">{printInv.customerEmail}</div>
+                </div>
+
+                <table className="w-full mb-4 border border-slate-200">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="p-2">Item</th>
+                      <th className="p-2 text-center">Qty</th>
+                      <th className="p-2 text-right">Unit Price</th>
+                      <th className="p-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(printInv.lines || []).map((l, i) => (
+                      <tr key={i} className="border-b border-slate-100">
+                        <td className="p-2">{l.productName} ({l.variantOption})</td>
+                        <td className="p-2 text-center">{l.quantity}</td>
+                        <td className="p-2 text-right">${l.unitPrice}</td>
+                        <td className="p-2 text-right font-bold">${l.lineTotal}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="text-right space-y-1 mb-6">
+                  <div>Subtotal: ${(printInv.subtotal || 0).toLocaleString()}</div>
+                  <div>Tax: ${(printInv.taxTotal || 0).toLocaleString()}</div>
+                  <div className="text-base font-black text-slate-900">Total: ${(printInv.totalAmount || 0).toLocaleString()}</div>
+                  <div className="text-emerald-600">Paid: ${(printInv.paidAmount || 0).toLocaleString()}</div>
+                  <div className="text-rose-600 font-bold">Balance Due: ${(printInv.balanceDue || 0).toLocaleString()}</div>
+                </div>
+
+                <div className="flex justify-between items-center border-t border-slate-200 pt-3">
+                  <button
+                    onClick={() => window.print()}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold"
+                  >
+                    Print Invoice
+                  </button>
+                  <button
+                    onClick={() => setPrintInv(null)}
+                    className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-50 text-slate-700"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // MODULE 7: FINANCIAL REPORTS VIEW
+    // ==========================================
+    function ReportsView({ user }) {
+      const [summary, setSummary] = useState(null);
+      const [chased, setChased] = useState({});
+
+      useEffect(() => {
+        apiRequest('/reports/summary', 'GET', null, user).then(res => setSummary(res));
+      }, [user.role]);
+
+      if (!summary) return <div className="p-8 text-center text-xs text-slate-400">Loading reports...</div>;
+
+      const kpis = summary.kpiSummary || {};
+      const overdue = summary.overdueInvoices || [];
+      const plans = summary.planBreakdown || {};
+
+      return (
+        <div className="space-y-6">
+          <div className="plain-card p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">Financial Reports</h2>
+              <p className="text-sm text-slate-500 mt-0.5">Recurring revenue run-rate, collections, and overdue aging.</p>
+            </div>
+            <div className="text-xs bg-slate-100 text-slate-700 px-3 py-1.5 rounded font-medium border border-slate-200">
+              Response Latency: {summary.meta.executionTimeMs} ms
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="plain-card p-5">
+              <div className="text-xs font-semibold uppercase text-slate-500">Active Subscriptions</div>
+              <div className="mt-2 text-3xl font-extrabold text-slate-900">{kpis.activeSubscriptionsCount}</div>
+            </div>
+            <div className="plain-card p-5">
+              <div className="text-xs font-semibold uppercase text-slate-500">Monthly Recurring (MRR)</div>
+              <div className="mt-2 text-3xl font-extrabold text-blue-600">${kpis.mrr.toLocaleString()}</div>
+              <div className="text-xs text-slate-400 mt-1">ARR: ${kpis.arr.toLocaleString()}</div>
+            </div>
+            <div className="plain-card p-5">
+              <div className="text-xs font-semibold uppercase text-slate-500">Total Collected</div>
+              <div className="mt-2 text-3xl font-extrabold text-emerald-600">${kpis.totalCollected.toLocaleString()}</div>
+            </div>
+            <div className="plain-card p-5">
+              <div className="text-xs font-semibold uppercase text-slate-500">Outstanding Receivables</div>
+              <div className="mt-2 text-3xl font-extrabold text-rose-600">${kpis.totalOutstanding.toLocaleString()}</div>
+              <div className="text-xs text-rose-500 mt-1 font-semibold">{kpis.overdueCount} accounts past due</div>
+            </div>
+          </div>
+
+          <div className="plain-card p-5">
+            <h3 className="font-bold text-sm mb-3">Revenue by Plan</h3>
+            <div className="space-y-2 text-xs">
+              {Object.keys(plans).map(name => (
+                <div key={name} className="flex justify-between p-2.5 bg-slate-50 rounded border border-slate-100">
+                  <span className="font-semibold text-slate-800">{name}</span>
+                  <span className="font-bold text-blue-600">${plans[name].toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Overdue Aging Table */}
+          <div className="plain-card overflow-hidden">
+            <div className="p-4 bg-rose-50/40 border-b border-rose-100 flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-rose-900 text-xs uppercase tracking-wider">Overdue Accounts Ledger</h3>
+                <p className="text-[11px] text-rose-700">Accounts past agreed payment terms.</p>
+              </div>
+              <span className="text-[10px] bg-rose-200 text-rose-800 font-bold px-2 py-0.5 rounded">
+                {overdue.length} Accounts
+              </span>
+            </div>
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase">
+                <tr>
+                  <th className="p-3">Invoice #</th>
+                  <th className="p-3">Customer</th>
+                  <th className="p-3">Due Date</th>
+                  <th className="p-3">Aging</th>
+                  <th className="p-3">Balance Due</th>
+                  <th className="p-3 text-right">Collections Notice</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {overdue.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="p-4 text-center text-emerald-600 font-semibold">
+                      ✓ All accounts current. No overdue invoices.
+                    </td>
+                  </tr>
+                ) : (
+                  overdue.map(o => (
+                    <tr key={o.invoiceId} className="hover:bg-slate-50">
+                      <td className="p-3 font-mono font-bold text-blue-600">{o.invoiceNumber}</td>
+                      <td className="p-3 font-semibold text-slate-900">{o.customerName}</td>
+                      <td className="p-3 text-slate-600">{o.dueDate}</td>
+                      <td className="p-3 font-bold text-rose-600">{o.daysOverdue} days late</td>
+                      <td className="p-3 font-bold text-rose-600">${o.balanceDue.toLocaleString()}</td>
+                      <td className="p-3 text-right">
+                        <button
+                          onClick={() => setChased({ ...chased, [o.invoiceNumber]: true })}
+                          className={`px-2.5 py-1 text-[10px] font-bold rounded transition-colors ${
+                            chased[o.invoiceNumber]
+                              ? 'bg-emerald-100 text-emerald-800 cursor-default'
+                              : 'bg-rose-600 hover:bg-rose-700 text-white'
+                          }`}
+                        >
+                          {chased[o.invoiceNumber] ? '✓ Notice Sent' : 'Send Notice'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // ADMIN STAFF MANAGEMENT VIEW
+    // ==========================================
+    function StaffManagementView({ user }) {
+      const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '' });
+      const [msg, setMsg] = useState(null);
+      const [err, setErr] = useState(null);
+
+      const pw = staffForm.password;
+      const isStrong = pw.length > 8 && /[A-Z]/.test(pw) && /[a-z]/.test(pw) && /[!@#$%^&*(),.?":{}|<>]/.test(pw);
+
+      const handleAddStaff = async (e) => {
+        e.preventDefault();
+        setMsg(null);
+        setErr(null);
+
+        if (!isStrong) {
+          setErr('Password must be > 8 characters with upper, lower, and special character.');
+          return;
+        }
+
+        try {
+          const res = await apiRequest('/auth/staff', 'POST', staffForm, user);
+          setMsg(`Staff member ${res.staff.name} added successfully.`);
+          setStaffForm({ name: '', email: '', password: '' });
+        } catch (e) {
+          setErr(e.message);
+        }
+      };
+
+      return (
+        <div className="space-y-6">
+          <div className="plain-card p-6">
+            <h2 className="text-2xl font-bold text-slate-900">Internal Staff Management</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Provision internal staff accounts for sales and billing operations.</p>
+          </div>
+
+          {msg && <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800">{msg}</div>}
+          {err && <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800">{err}</div>}
+
+          <div className="max-w-md plain-card p-6">
+            <h3 className="text-base font-bold text-slate-900 mb-3">Add Staff Member</h3>
+            <form onSubmit={handleAddStaff} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={staffForm.name}
+                  onChange={e => setStaffForm({ ...staffForm, name: e.target.value })}
+                  placeholder="e.g. Rachel Green"
+                  className="w-full border border-slate-300 rounded p-2"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Email *</label>
+                <input
+                  type="email"
+                  required
+                  value={staffForm.email}
+                  onChange={e => setStaffForm({ ...staffForm, email: e.target.value })}
+                  placeholder="rachel@brightloop.com"
+                  className="w-full border border-slate-300 rounded p-2"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-medium mb-1">Temporary Password *</label>
+                <input
+                  type="password"
+                  required
+                  value={staffForm.password}
+                  onChange={e => setStaffForm({ ...staffForm, password: e.target.value })}
+                  placeholder="Must satisfy complexity"
+                  className="w-full border border-slate-300 rounded p-2"
+                />
+                <div className="text-[11px] text-slate-400 mt-1">Must be &gt;8 characters with uppercase, lowercase, and symbol.</div>
+              </div>
+              <button
+                type="submit"
+                disabled={!isStrong}
+                className={`w-full py-2 font-medium rounded text-white ${
+                  isStrong ? 'bg-purple-600 hover:bg-purple-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                }`}
+              >
+                Create Staff Account
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
