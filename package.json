@@ -1,0 +1,29 @@
+{
+  "name": "brightloop-subscription-mern",
+  "version": "1.0.0",
+  "description": "Brightloop Subscription Management System - MERN Stack Monolith for Hackathon Demo",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "server": "node server/server.js",
+    "seed": "node server/seed/seedData.js",
+    "dev": "node server/server.js"
+  },
+  "keywords": [
+    "mern",
+    "subscription-management",
+    "recurring-billing",
+    "hackathon",
+    "odoo-challenge"
+  ],
+  "author": "Brightloop Hackathon Team",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.22.3",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.3.1"
+  }
+}
